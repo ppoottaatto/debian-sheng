@@ -4,6 +4,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   build:
@@ -15,26 +16,33 @@ jobs:
       - name: Download all artifacts from target run
         uses: actions/download-artifact@v4
         with:
-          # 如果原仓库不同，请修改下方的 repository
-          repository: ppoottaatto/debian-sheng 
+          repository: ppoottaatto/debian-sheng
           run-id: 39005733526
-          # 如果使用PAT，取消下方注释
-          # github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           path: ./artifacts
 
-      - name: Install zip tools
-        run: sudo apt-get install -y zip
+      - name: Verify download
+        run: |
+          ls -la ./artifacts
+          echo "总大小:"
+          du -sh ./artifacts
+          [ -d ./artifacts ] && [ "$(ls -A ./artifacts)" ] || (echo "下载失败：artifacts 目录为空或不存在" && exit 1)
 
       - name: Package and Split artifacts (>2GB limit)
         run: |
+          mkdir -p ./out
           cd artifacts
+
           # 将单个超过2GB的 rootfs 单独打包并分卷 (每卷1900MB)
           if [ -d "rootfs-forky-KDE Plasma-linux" ]; then
-            zip -r -s 1900m rootfs-forky-KDE-Plasma-linux.zip "rootfs-forky-KDE Plasma-linux"
+            zip -r -s 1900m ../out/rootfs-forky-KDE-Plasma-linux.zip "rootfs-forky-KDE Plasma-linux"
           fi
-          
-          # 将其余小文件打包成一个压缩包
-          zip -r others.zip . -x "rootfs-forky-KDE Plasma-linux/*"
+
+          # 其余所有内容（包括 rootfs 之外的文件）打包
+          zip -r ../out/others.zip . -x "rootfs-forky-KDE Plasma-linux/*"
+
+      - name: List output files
+        run: ls -lh ./out
 
       - name: Upload to Release
         uses: ncipollo/release-action@v1
@@ -42,17 +50,19 @@ jobs:
           tag: debian-sheng-build
           name: "Debian14(Forky)KDE Plasma Build"
           allowUpdates: true
-          artifacts: "artifacts/*.zip,artifacts/*.z*"
+          artifactErrorsFailBuild: true
+          artifacts: "out/*"
           body: |
             Debian14(Forky)KDE Plasma 构建产出。
-            
+
             **默认账号信息：**
             用户名: username
             密码: password
-            
+
             **⚠️ 下载与合并说明：**
             由于 rootfs 文件大于 3GB，已超过 GitHub Release 单文件 2GB 限制，已进行分卷压缩。
-            请下载同目录下的所有 `.zip` 和 `.z01`、`.z02` 等分卷文件。
+            请下载同目录下的所有 `.zip`、`.z01`、`.z02` 等分卷文件。
             下载完成后，将所有分卷放在同一文件夹内，执行以下命令合并并解压：
+
             `zip -s 0 rootfs-forky-KDE-Plasma-linux.zip --out full-rootfs.zip`
             `unzip full-rootfs.zip`
